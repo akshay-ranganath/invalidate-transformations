@@ -7,13 +7,13 @@
 Clone the repository.
 
 ```
-git clone 
+git clone https://github.com/akshay-ranganath/invalidate-transformations.git
 ```
 
 Change to the project directory.
 
 ```
-cd 
+cd invalidate-transformations
 ```
 
 The script has been written for Python3. Install the libraries for the script. Alternatively create a virtual environment and then install the libraries.
