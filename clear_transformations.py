@@ -66,11 +66,13 @@ class checkArgument(argparse.Action):
         setattr(namespace, self.dest, values)
         
 
-def get_transformations(overlay, results=[], next_cursor=None):
+def get_transformations(overlay):
     """
     get_transformations is a wrapper for the 'GET Transformations' API Method (https://cloudinary.com/documentation/admin_api#get_transformations)
 
-    This function is also recursive. Using the `next_cursor` as a pagination variable, it loops through all transformations.
+    This function was recursive. It has now been converted to not use recursion and avoid the max depth error. 
+    
+    Using the `next_cursor` as a pagination variable, it loops through all transformations.
     Each call will return a max of 500 transformations. If the name contains the overlay image and if it is actually used, 
     it is retained for next round of analysis. 
     
@@ -84,38 +86,46 @@ def get_transformations(overlay, results=[], next_cursor=None):
     Returns:
         results: A list of transformations that contains the overlay image name
     """
-    
-    try:        
-        resp = cloudinary.api.transformations(
-            max_results=500,
-            next_cursor = next_cursor
-        )
-        for transformation in resp['transformations']:
-            #logger.debug(f"{transformation['name']}, {transformation['used']}")
-            try:
-                if transformation['used']==True and transformation['name'].find(f'{overlay}')>-1:            
-                    results.append(transformation['name'])                
-            except TypeError as e:
-                logger.error(transformation['name'], e)            
-                return None
+    next_cursor=None
+    results=[]
+            
+    while True:
+        try:
+            resp = cloudinary.api.transformations(
+                max_results=500,
+                next_cursor = next_cursor
+            )
+            
+            for transformation in resp['transformations']:
+                #logger.debug(f"{transformation['name']}, {transformation['used']}")
+                try:
+                    if transformation['used']==True and transformation['name'].find(f'{overlay}')>-1:            
+                        results.append(transformation['name'])                
+                except TypeError as e:
+                    logger.error(transformation['name'], e)            
+                    return None
         
-        if('next_cursor' in resp and resp['next_cursor']!=None):
-            get_transformations(overlay, results, resp['next_cursor'])
-    except cloudinary.exceptions.RateLimited as e:
-        logger.error('API rate limit has been reached. Try after 1 hour or reach out to Cloudinary Support')
-        results = []
-    except Exception as e:
-        logger.error(e)
-        results = []
+            if('next_cursor' in resp and resp['next_cursor']!=None):
+                next_cursor = resp['next_cursor']
+            else:
+                break
+        except cloudinary.exceptions.RateLimited as e:
+            logger.error('API rate limit has been reached. Try after 1 hour or reach out to Cloudinary Support')
+            results = []
+            break 
+        except Exception as e:
+            logger.error(e)
+            results = []
+            break 
     return results
 
 
-def get_resources(transformation, resources, next_cursor=None):    
+def get_resources(transformation, resources):    
     """
     get_resources is a wrapper for the API 'GET transformation details` (https://cloudinary.com/documentation/admin_api#get_transformation_details)
     This method returns a list of public ids and the associated transformation string.
 
-    This is also a recursive method and uses next_cursor to loop through list of all images that use same transformation string.
+    This is also no longer a recursive method and uses next_cursor to loop through list of all images that use same transformation string.
 
     Args:
         transformation (_type_): _description_
@@ -126,21 +136,30 @@ def get_resources(transformation, resources, next_cursor=None):
         _results_: Dictionary of resources containg { transformation -> [public ids] } mapping
     """
 
-    resp = cloudinary.api.transformation(
-        transformation,
-        max_results=500,
-        next_cursor = next_cursor        
-    )
+    next_cursor=None 
 
-    for derived in resp['derived']:
-        public_id = derived['public_id']
-        if transformation in resources:
-            resources[transformation].append(public_id)
-        else:
-            resources[transformation] = [public_id]
-    
-    if('next_cursor' in resp and resp['next_cursor']!=None):
-        get_resources(transformation, resources, resp['next_cursor'])
+    while True:
+        try:
+            resp = cloudinary.api.transformation(
+                transformation,
+                max_results=500,
+                next_cursor = next_cursor        
+            )
+
+            for derived in resp['derived']:
+                public_id = derived['public_id']
+                if transformation in resources:
+                    resources[transformation].append(public_id)
+                else:
+                    resources[transformation] = [public_id]
+            
+            if('next_cursor' in resp and resp['next_cursor']!=None):
+                next_cursor = resp['next_cursor']
+            else: 
+                break
+        except Exception as e:
+            logging.error(f'Failed to fetch transformations: {e}')
+            break
     
     return resources
 
